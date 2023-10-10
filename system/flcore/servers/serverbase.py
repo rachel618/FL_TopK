@@ -62,7 +62,9 @@ class Server(object):
         self.new_clients = []
         self.eval_new_clients = False
         self.fine_tuning_epoch = args.fine_tuning_epoch
-
+        
+        self.test_loader = self.set_test_data()
+        
     def set_clients(self, clientObj):
         for i, train_slow, send_slow in zip(range(self.num_clients), self.train_slow_clients, self.send_slow_clients):
             train_data = read_client_data(self.dataset, i, is_train=True)
@@ -74,7 +76,14 @@ class Server(object):
                             train_slow=train_slow, 
                             send_slow=send_slow)
             self.clients.append(client)
-
+            
+    def set_test_data(self):
+        test_data = []
+        for i in range(self.num_clients):
+            test_data.extend(read_client_data(self.dataset, i, is_train = False))
+            
+        return DataLoader(test_data, self.batch_size, drop_last=True, shuffle=True)
+        
     # random select slow clients
     def select_slow_clients(self, slow_rate):
         slow_clients = [False for i in range(self.num_clients)]
@@ -191,24 +200,44 @@ class Server(object):
     def load_item(self, item_name):
         return torch.load(os.path.join(self.save_folder_name, "server_" + item_name + ".pt"))
 
+    
     def test_metrics(self):
-        if self.eval_new_clients and self.num_new_clients > 0:
-            self.fine_tuning_new_clients()
-            return self.test_metrics_new_clients()
+        testloaderfull = self.test_loader
+        self.global_model.eval()
+
+        test_acc = 0
+        test_num = 0
+        y_prob = []
+        y_true = []
+      
+        with torch.no_grad():
+            for x, y in testloaderfull:
+                if type(x) == type([]):
+                    x[0] = x[0].to(self.device)
+                else:
+                    x = x.to(self.device)
+                y = y.to(self.device)
+                output = self.global_model(x)
+
+                test_acc += (torch.sum(torch.argmax(output, dim=1) == y)).item()
+                test_num += y.shape[0]
+
+                y_prob.append(output.detach().cpu().numpy())
+                nc = self.num_classes
+                if self.num_classes == 2:
+                    nc += 1
+                lb = label_binarize(y.detach().cpu().numpy(), classes=np.arange(nc))
+                if self.num_classes == 2:
+                    lb = lb[:, :2]
+                y_true.append(lb)
+
+        y_prob = np.concatenate(y_prob, axis=0)
+        y_true = np.concatenate(y_true, axis=0)
+
+        auc = metrics.roc_auc_score(y_true, y_prob, average='micro')
         
-        num_samples = []
-        tot_correct = []
-        tot_auc = []
-        for c in self.clients:
-            ct, ns, auc = c.test_metrics()
-            tot_correct.append(ct*1.0)
-            tot_auc.append(auc*ns)
-            num_samples.append(ns)
-
-        ids = [c.id for c in self.clients]
-
-        return ids, num_samples, tot_correct, tot_auc
-
+        return test_acc, test_num, auc
+        
     def train_metrics(self):
         if self.eval_new_clients and self.num_new_clients > 0:
             return [0], [1], [0]
@@ -224,16 +253,15 @@ class Server(object):
 
         return ids, num_samples, losses
 
-    # evaluate selected clients
+ # evaluate selected clients
     def evaluate(self, acc=None, loss=None):
-        stats = self.test_metrics()
+        test_acc, test_num, test_auc  = self.test_metrics()
         stats_train = self.train_metrics()
-
-        test_acc = sum(stats[2])*1.0 / sum(stats[1])
-        test_auc = sum(stats[3])*1.0 / sum(stats[1])
+        test_acc /= test_num
+        # test_acc = sum(stats[2])*1.0 / sum(stats[1])
+        # test_auc = sum(stats[3])*1.0 / sum(stats[1])
         train_loss = sum(stats_train[2])*1.0 / sum(stats_train[1])
-        accs = [a / n for a, n in zip(stats[2], stats[1])]
-        aucs = [a / n for a, n in zip(stats[3], stats[1])]
+        
         
         if acc == None:
             self.rs_test_acc.append(test_acc)
@@ -248,10 +276,8 @@ class Server(object):
         print("Averaged Train Loss: {:.4f}".format(train_loss))
         print("Averaged Test Accurancy: {:.4f}".format(test_acc))
         print("Averaged Test AUC: {:.4f}".format(test_auc))
-        # self.print_(test_acc, train_acc, train_loss)
-        print("Std Test Accurancy: {:.4f}".format(np.std(accs)))
-        print("Std Test AUC: {:.4f}".format(np.std(aucs)))
-
+    
+    
     def print_(self, test_acc, test_auc, train_loss):
         print("Average Test Accurancy: {:.4f}".format(test_acc))
         print("Average Test AUC: {:.4f}".format(test_auc))
