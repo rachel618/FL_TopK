@@ -5,10 +5,12 @@ import h5py
 import copy
 import time
 import random
+from sklearn.preprocessing import label_binarize
+from sklearn import metrics
 
 from utils.data_utils import read_client_data
+from torch.utils.data import DataLoader
 from utils.dlg import DLG
-
 
 class Server(object):
     def __init__(self, args, times):
@@ -62,13 +64,16 @@ class Server(object):
         self.new_clients = []
         self.eval_new_clients = False
         self.fine_tuning_epoch = args.fine_tuning_epoch
-        
+
+
         self.test_loader = self.set_test_data()
-        
+      
+            
     def set_clients(self, clientObj):
         for i, train_slow, send_slow in zip(range(self.num_clients), self.train_slow_clients, self.send_slow_clients):
             train_data = read_client_data(self.dataset, i, is_train=True)
             test_data = read_client_data(self.dataset, i, is_train=False)
+
             client = clientObj(self.args, 
                             id=i, 
                             train_samples=len(train_data), 
@@ -76,14 +81,14 @@ class Server(object):
                             train_slow=train_slow, 
                             send_slow=send_slow)
             self.clients.append(client)
-            
+
     def set_test_data(self):
         test_data = []
         for i in range(self.num_clients):
             test_data.extend(read_client_data(self.dataset, i, is_train = False))
             
         return DataLoader(test_data, self.batch_size, drop_last=True, shuffle=True)
-        
+    
     # random select slow clients
     def select_slow_clients(self, slow_rate):
         slow_clients = [False for i in range(self.num_clients)]
@@ -154,6 +159,70 @@ class Server(object):
         for w, client_model in zip(self.uploaded_weights, self.uploaded_models):
             self.add_parameters(w, client_model)
 
+    def aggregate_gradients(self):
+        self.global_model = copy.deepcopy(self.uploaded_models[0])
+       
+        for new_param, orig_param in zip(self.global_model.parameters(), self.uploaded_models[0].parameters()):
+            new_param.grad = orig_param.grad.clone()
+        
+        client_grads = []
+        for client in self.uploaded_models:
+            grad = [param.grad.clone() for param in client.parameters()]
+            client_grads.append(grad)
+         
+        if self.args.topk_algo == "global":
+            topk_grads = [self.global_topk(grad) for grad in client_grads]
+        else:
+            topk_grads = [self.chunk_topk(grad) for grad in client_grads]
+       
+        average_grads = [sum(element)/len(topk_grads) for element in zip(*topk_grads)]
+    
+        for idx, param in enumerate(self.global_model.parameters()):
+            if param.grad == None:
+                param.grad.data = torch.zeros_like(param.data)
+            param.grad.data = average_grads[idx]
+            
+        optimizer = torch.optim.SGD(self.global_model.parameters(), lr = self.args.local_learning_rate)    
+        optimizer.step()
+  
+    def chunk_topk(self,gradient):
+        all_grads = torch.empty(0,dtype=torch.float32).to(self.device)
+        for grad in gradient:
+            all_grads = torch.cat([all_grads,grad.reshape(-1)])
+            
+        chunks = torch.chunk(all_grads,2*self.args.topk,dim = -1)    
+        for chunk in chunks:
+            local_max = torch.abs(chunk.data).max()
+            chunk.data = torch.where(torch.abs(chunk.data) == local_max, chunk.data, 0.)  
+            
+        topk_chunk_grad_flattened = torch.cat([chunk for chunk in chunks])  
+        
+        topk_chunk_grad = []
+        start_idx = 0
+        for grad in gradient:
+            end_idx = start_idx + grad.data.numel()
+            topk_chunk_grad.append(torch.Tensor(topk_chunk_grad_flattened[start_idx:end_idx]).view(grad.data.shape))
+            start_idx = end_idx
+            
+        return topk_chunk_grad    
+    
+    def global_topk(self,gradient):
+        min_ = self.get_min_grad(gradient)
+        # min_ = 1e-9
+        
+        for g in gradient:
+            g.data = torch.where(torch.abs(g.data) >= min_, g.data, 0.)
+            
+        return gradient 
+    
+    def get_min_grad(self,gradient):
+        all_grads = torch.empty(0,dtype=torch.float32).to(self.device)
+        for grad in gradient:
+            all_grads = torch.cat([all_grads,grad.reshape(-1)])
+            
+        topk_grads = torch.abs(all_grads).topk(self.args.topk)[0]
+        return torch.min(topk_grads).item()
+
     def add_parameters(self, w, client_model):
         for server_param, client_param in zip(self.global_model.parameters(), client_model.parameters()):
             server_param.data += client_param.data.clone() * w
@@ -200,9 +269,10 @@ class Server(object):
     def load_item(self, item_name):
         return torch.load(os.path.join(self.save_folder_name, "server_" + item_name + ".pt"))
 
-    
     def test_metrics(self):
         testloaderfull = self.test_loader
+        # self.model = self.load_model('model')
+        # self.model.to(self.device)
         self.global_model.eval()
 
         test_acc = 0
@@ -231,6 +301,9 @@ class Server(object):
                     lb = lb[:, :2]
                 y_true.append(lb)
 
+        # self.model.cpu()
+        # self.save_model(self.model, 'model')
+   
         y_prob = np.concatenate(y_prob, axis=0)
         y_true = np.concatenate(y_true, axis=0)
 
@@ -253,16 +326,13 @@ class Server(object):
 
         return ids, num_samples, losses
 
- # evaluate selected clients
+    # evaluate selected clients
     def evaluate(self, acc=None, loss=None):
         test_acc, test_num, test_auc  = self.test_metrics()
         stats_train = self.train_metrics()
         test_acc /= test_num
-        # test_acc = sum(stats[2])*1.0 / sum(stats[1])
-        # test_auc = sum(stats[3])*1.0 / sum(stats[1])
         train_loss = sum(stats_train[2])*1.0 / sum(stats_train[1])
-        
-        
+
         if acc == None:
             self.rs_test_acc.append(test_acc)
         else:
@@ -276,8 +346,7 @@ class Server(object):
         print("Averaged Train Loss: {:.4f}".format(train_loss))
         print("Averaged Test Accurancy: {:.4f}".format(test_acc))
         print("Averaged Test AUC: {:.4f}".format(test_auc))
-    
-    
+ 
     def print_(self, test_acc, test_auc, train_loss):
         print("Average Test Accurancy: {:.4f}".format(test_acc))
         print("Average Test AUC: {:.4f}".format(test_auc))
