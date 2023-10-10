@@ -6,9 +6,13 @@ import copy
 import time
 import random
 
+from sklearn.preprocessing import label_binarize
+from sklearn import metrics
+
 from utils.data_utils import read_client_data
 from utils.dlg import DLG
 
+from torch.utils.data import DataLoader
 
 class Server(object):
     def __init__(self, args, times):
@@ -143,7 +147,49 @@ class Server(object):
                 self.uploaded_models.append(client.model)
         for i, w in enumerate(self.uploaded_weights):
             self.uploaded_weights[i] = w / tot_samples
-
+            
+    def aggregate_gradients(self):
+        self.global_model = copy.deepcopy(self.uploaded_models[0])
+       
+        for new_param, orig_param in zip(self.global_model.parameters(), self.uploaded_models[0].parameters()):
+            new_param.grad = orig_param.grad.clone()
+        
+        client_grads = []
+        for client in self.uploaded_models:
+            grad = [param.grad.clone() for param in client.parameters()]
+            client_grads.append(grad)
+         
+        if self.args.topk_algo == "global":
+            topk_grads = [self.global_topk(grad) for grad in client_grads]
+        else: # 2k chunk
+            raise NotImplementedError
+       
+        average_grads = [sum(element)/len(topk_grads) for element in zip(*topk_grads)]
+    
+        for idx, param in enumerate(self.global_model.parameters()):
+            if param.grad == None:
+                param.grad.data = torch.zeros_like(param.data)
+            param.grad.data = average_grads[idx]
+            
+        optimizer = torch.optim.SGD(self.global_model.parameters(), lr = self.args.local_learning_rate)    
+        optimizer.step()
+		
+    def global_topk(self,gradient):
+        min_ = self.get_min_grad(gradient)
+        # min_ = 1e-9
+        
+        for g in gradient:
+            g.data = torch.where(torch.abs(g.data) >= min_, g.data, 0.)
+            
+        return gradient 
+    
+    def get_min_grad(self,gradient):
+        all_grads = torch.empty(0,dtype=torch.float32).to(self.device)
+        for grad in gradient:
+            all_grads = torch.cat([all_grads,grad.reshape(-1)])
+            
+        topk_grads = torch.abs(all_grads).topk(self.args.topk)[0]
+        return torch.min(topk_grads).item()
     def aggregate_parameters(self):
         assert (len(self.uploaded_models) > 0)
 
