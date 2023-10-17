@@ -1,21 +1,15 @@
 import numpy as np
 import pandas as pd
 from PIL import Image
-import os
-import sys
+import argparse
 import random
 import torch
-import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from utils.dataset_utils import check, separate_data, split_data, save_file
 
-
-random.seed(1)
-np.random.seed(1)
-num_clients = 100
-num_classes = 62
-dir_path = "femnist/"
+import os
+DATA_PATH = os.path.dirname(os.path.abspath(__file__)) 
 
 def relabel(c):
     """
@@ -34,22 +28,18 @@ def relabel(c):
         return int(c, 16) - 61  
     
 class FemnistDataset(Dataset):
-    def __init__(self, data, transform):
+    def __init__(self, data, transform, root):
         # super(FemnistNiidDataset, self).__init__()
 
         self.data = data
-        self.transforms = transforms
-        self.root = "/Users/jihyun.jung/Top_K/ISL-Lab-Intern/leaf/data/femnist"
+        self.transforms = transform
+        self.root = root
         self.transform = transform
         self.images = self.get_images()
         self.targets = self.get_targets()
         
         
     def __getitem__(self, index):
-        # path = os.path.join(self.root, self.data[index][0])
-        # image = Image.open(path).convert("L")
-        # pixel_values = self.transform(image)
-        # label = torch.tensor(relabel(self.data[index][1]))
         return self.images[index], self.targets[index]
 
     def get_images(self):
@@ -72,10 +62,7 @@ class FemnistDataset(Dataset):
         return len(self.data)
     
  
-def get_writer_id(num_clients):
-      
-        data = pd.read_pickle('/Users/jihyun.jung/Top_K/ISL-Lab-Intern/PFL-Non-IID/dataset/femnist/images_by_writer.pkl')
-    
+def get_writer_id(data, num_clients):
         images_per_writer = [(row[0],len(row[1])) for row in data]
         images_per_writer.sort(key = lambda x : x[1], reverse=True)
     
@@ -85,32 +72,24 @@ def get_writer_id(num_clients):
         return user_ids
     
 # Allocate data to users
-def generate_mnist(dir_path, num_clients, num_classes, niid, balance, partition):
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+def generate_mnist(data_path, meta_path, save_path,  num_clients, num_classes, niid, balance, partition):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
         
     # Setup directory for train/test data
-    config_path = dir_path + "config.json"
-    train_path = dir_path + "train/"
-    test_path = dir_path + "test/"
-
+    config_path = os.path.join(save_path, 'config.json')
+    train_path = os.path.join(save_path, 'train')
+    test_path = os.path.join(save_path, 'test')
+    
     if check(config_path, train_path, test_path, num_clients, num_classes, niid, balance, partition):
         return
-
-    # FIX HTTP Error 403: Forbidden
-    from six.moves import urllib
-    opener = urllib.request.build_opener()
-    opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-    urllib.request.install_opener(opener)
 
     # Get MNIST data
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
 
-    writer_ids = get_writer_id(num_clients)
-    root = "/Users/jihyun.jung/Top_K/ISL-Lab-Intern/leaf/data/femnist"
-    data = pd.read_pickle(
-        os.path.join(root, "data/intermediate/images_by_writer.pkl")
-    )
+    data = pd.read_pickle(meta_path)
+    writer_ids = get_writer_id(data, num_clients)
+    
  
     X = [[] for _ in range(num_clients)]
     y = [[] for _ in range(num_clients)]
@@ -119,7 +98,7 @@ def generate_mnist(dir_path, num_clients, num_classes, niid, balance, partition)
     for i in range(len(writer_ids)):
         
         user_data = [row[1] for row in data if row[0] == writer_ids[i]][0]
-        dataset = FemnistDataset(data = user_data, transform = transform)
+        dataset = FemnistDataset(data = user_data, transform = transform, root = data_path)
         dataloader = torch.utils.data.DataLoader(
             dataset, batch_size=len(dataset.data), shuffle=False)
   
@@ -137,8 +116,23 @@ def generate_mnist(dir_path, num_clients, num_classes, niid, balance, partition)
 
 
 if __name__ == "__main__":
-    niid = True if sys.argv[1] == "noniid" else False
-    balance = True if sys.argv[2] == "balance" else False
-    partition = sys.argv[3] if sys.argv[3] != "-" else None
-
-    generate_mnist(dir_path, num_clients, num_classes, niid, balance, partition)
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--niid', type=bool, default=True)
+    parser.add_argument('--balance', type=bool, default=False)
+    parser.add_argument('--partition', type=bool, default=None)
+    parser.add_argument('--num_clients', type=int, default=100)
+    parser.add_argument('--dataset', type=str, default='femnist')
+    parser.add_argument('--meta_file_name', type=str, default='images_by_writer.pkl')
+    parser.add_argument('--save_path', type=str, default='femnist')
+    args = parser.parse_args()
+    
+    random.seed(1)
+    np.random.seed(1)
+    num_classes = 62
+   
+    data_path = os.path.join(DATA_PATH, args.dataset)
+    meta_path = os.path.join(data_path,args.meta_file_name)
+    save_path = os.path.join(DATA_PATH, args.save_path)
+    
+    generate_mnist(data_path, meta_path, save_path, args.num_clients, num_classes, args.niid, args.balance, args.partition)
