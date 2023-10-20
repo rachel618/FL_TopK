@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from utils.dataset_utils import check, separate_data, split_data, save_file
 
 import os
-DATA_PATH = os.path.dirname(os.path.abspath(__file__)) 
+ROOT_PATH = os.path.dirname(os.path.abspath(__file__)) 
 
 def relabel(c):
     """
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     parser.add_argument('--balance', type=bool, default=False)
     parser.add_argument('--partition', type=bool, default=None)
     parser.add_argument('--num_clients', type=int, default=100)
-    parser.add_argument('--dataset', type=str, default='femnist')
+    parser.add_argument('--data_path', type=str, default='femnist')
     parser.add_argument('--meta_file_name', type=str, default='images_by_writer.pkl')
     parser.add_argument('--save_path', type=str, default='femnist')
     args = parser.parse_args()
@@ -131,8 +131,7 @@ if __name__ == "__main__":
     np.random.seed(1)
     num_classes = 62
    
-    data_path = os.path.join(DATA_PATH, args.dataset)
-    meta_path = os.path.join(data_path,args.meta_file_name)
-    save_path = os.path.join(DATA_PATH, args.save_path)
+    meta_path = os.path.join(args.data_path, args.meta_file_name)
+    save_path = os.path.join(ROOT_PATH, args.save_path)
     
-    generate_mnist(data_path, meta_path, save_path, args.num_clients, num_classes, args.niid, args.balance, args.partition)
+    generate_mnist(args.data_path, meta_path, save_path, args.num_clients, num_classes, args.niid, args.balance, args.partition)
