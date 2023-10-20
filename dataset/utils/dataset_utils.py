@@ -25,13 +25,6 @@ def check(config_path, train_path, test_path, num_clients, num_classes, niid=Fal
             print("\nDataset already generated.\n")
             return True
 
-    dir_path = os.path.dirname(train_path)
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    dir_path = os.path.dirname(test_path)
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
     return False
 
 def separate_data(data, num_clients, num_classes, niid=False, balance=False, partition=None, class_per_client=2):
@@ -161,12 +154,17 @@ def save_file(config_path, train_path, test_path, train_data, test_data, num_cli
 
     # gc.collect()
     print("Saving to disk.\n")
-
+    if not os.path.exists(train_path):
+        os.makedirs(train_path)
+    
+    if not os.path.exists(test_path):
+        os.makedirs(test_path)
+        
     for idx, train_dict in enumerate(train_data):
-        with open(train_path + str(idx) + '.npz', 'wb') as f:
+        with open(os.path.join(train_path, str(idx)+'.npz'), 'wb') as f:
             np.savez_compressed(f, data=train_dict)
     for idx, test_dict in enumerate(test_data):
-        with open(test_path + str(idx) + '.npz', 'wb') as f:
+        with open(os.path.join(test_path, str(idx)+'.npz'), 'wb') as f:
             np.savez_compressed(f, data=test_dict)
     with open(config_path, 'w') as f:
         ujson.dump(config, f)
