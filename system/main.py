@@ -165,7 +165,7 @@ def run(args):
         else:
             raise NotImplementedError
 
-        print(args.model)
+        # print(args.model)
 
         # select algorithm
         if args.algorithm == "FedAvg":
@@ -344,6 +344,8 @@ if __name__ == "__main__":
     parser.add_argument('-ls', "--local_epochs", type=int, default=1, 
                         help="Multiple update steps in one local epoch.")
     parser.add_argument('-algo', "--algorithm", type=str, default="FedAvg")
+    parser.add_argument('-tk', "--topk", type=int, default=100)
+    parser.add_argument('-tkalgo', "--topk_algo", type=str, default="chunk")
     parser.add_argument('-jr', "--join_ratio", type=float, default=1.0,
                         help="Ratio of clients per round")
     parser.add_argument('-rjr', "--random_join_ratio", type=bool, default=False,
@@ -440,6 +442,8 @@ if __name__ == "__main__":
     print("=" * 50)
 
     print("Algorithm: {}".format(args.algorithm))
+    print("TopK Method : {}".format(args.topk_algo))
+    print("TopK K : {}".format(args.topk))
     print("Local batch size: {}".format(args.batch_size))
     print("Local steps: {}".format(args.local_epochs))
     print("Local learing rate: {}".format(args.local_learning_rate))
@@ -473,24 +477,4 @@ if __name__ == "__main__":
     print("Fine tuning epoches on new clients: {}".format(args.fine_tuning_epoch))
     print("=" * 50)
 
-
-    # if args.dataset == "mnist" or args.dataset == "fmnist":
-    #     generate_mnist('../dataset/mnist/', args.num_clients, 10, args.niid)
-    # elif args.dataset == "Cifar10" or args.dataset == "Cifar100":
-    #     generate_cifar10('../dataset/Cifar10/', args.num_clients, 10, args.niid)
-    # else:
-    #     generate_synthetic('../dataset/synthetic/', args.num_clients, 10, args.niid)
-
-    # with torch.profiler.profile(
-    #     activities=[
-    #         torch.profiler.ProfilerActivity.CPU,
-    #         torch.profiler.ProfilerActivity.CUDA],
-    #     profile_memory=True, 
-    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log')
-    #     ) as prof:
-    # with torch.autograd.profiler.profile(profile_memory=True) as prof:
     run(args)
-
-    
-    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
-    # print(f"\nTotal time cost: {round(time.time()-total_start, 2)}s.")

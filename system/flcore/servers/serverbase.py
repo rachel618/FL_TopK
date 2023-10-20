@@ -199,6 +199,27 @@ class Server(object):
         )
         optimizer.step()
 
+    def aggregate_param_diff(self):
+        prev_model = copy.deepcopy(self.global_model)
+        self.global_model = copy.deepcopy(self.uploaded_models[0])
+
+        client_updated_params = []
+        for client in self.uploaded_models:
+            param = [
+                client_param.data.clone() - global_param.data.clone()
+                for client_param, global_param in zip(
+                    client.parameters(), self.global_model.parameters()
+                )
+            ]
+            client_updated_params.append(param)
+
+        topk_updated_params = self.get_top_k(client_updated_params, self.topk_algo)
+        for param_topk, w in zip(topk_updated_params, self.uploaded_weights):
+            for server_param, client_param_diff in zip(
+                prev_model.parameters(), self.global_model.parameters(), param_topk
+            ):
+                server_param.data += client_param_diff.data * w
+
     def get_top_k(self, aggregated_clients, topk_algo):
         if topk_algo == "global":
             topk_ = [self.global_topk(client) for client in aggregated_clients]
@@ -219,15 +240,18 @@ class Server(object):
 
         topk_chunk_grad_flattened = torch.cat([chunk for chunk in chunks])
 
+        topk_chunk_grad = []
         start_idx = 0
         for grad in gradient:
-            end_idx = start_idx + grad.numel()
-            grad.data = torch.tensor(topk_chunk_grad_flattened[start_idx:end_idx]).view(
-                grad.shape
+            end_idx = start_idx + grad.data.numel()
+            topk_chunk_grad.append(
+                torch.Tensor(topk_chunk_grad_flattened[start_idx:end_idx]).view(
+                    grad.data.shape
+                )
             )
             start_idx = end_idx
 
-        return gradient
+        return topk_chunk_grad
 
     def global_topk(self, gradient):
         min_ = self.get_min_grad(gradient)
