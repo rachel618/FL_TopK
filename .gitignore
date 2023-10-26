@@ -1,2 +1,6 @@
 *__pycache__*
 dataset/femnist
+dataset/mnist
+results/
+system/models
+wandb/
