@@ -69,6 +69,7 @@ class Server(object):
         self.topk = self.args.topk
         self.topk_algo = self.args.topk_algo
         self.test_loader = self.set_test_data()
+        self.prev_epoch_global_param = []
 
     def set_clients(self, clientObj):
         for i, train_slow, send_slow in zip(
@@ -200,10 +201,8 @@ class Server(object):
         optimizer.step()
 
     def aggregate_param_diff(self):
-        prev_model = copy.deepcopy(self.global_model)
-        self.global_model = copy.deepcopy(self.uploaded_models[0])
-
         client_updated_params = []
+
         for client in self.uploaded_models:
             param = [
                 client_param.data.clone() - global_param.data.clone()
@@ -213,12 +212,20 @@ class Server(object):
             ]
             client_updated_params.append(param)
 
+        self.global_model = copy.deepcopy(self.uploaded_models[0])
+        # for new_param, origin in zip(self.global_model.parameters(), self.prev_epoch_global_param):
+        #     new_param.data = origin
+
         topk_updated_params = self.get_top_k(client_updated_params, self.topk_algo)
         for param_topk, w in zip(topk_updated_params, self.uploaded_weights):
             for server_param, client_param_diff in zip(
-                prev_model.parameters(), self.global_model.parameters(), param_topk
+                self.global_model.parameters(), param_topk
             ):
-                server_param.data += client_param_diff.data * w
+                server_param.data += client_param_diff.data.clone() * w
+
+        self.prev_epoch_global_param = [
+            param.data.clone() for param in self.global_model.parameters()
+        ]
 
     def get_top_k(self, aggregated_clients, topk_algo):
         if topk_algo == "global":
