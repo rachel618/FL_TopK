@@ -69,7 +69,6 @@ class Server(object):
         self.topk = self.args.topk
         self.topk_algo = self.args.topk_algo
         self.test_loader = self.set_test_data()
-        self.prev_epoch_global_param = []
 
     def set_clients(self, clientObj):
         for i, train_slow, send_slow in zip(
@@ -145,7 +144,7 @@ class Server(object):
         self.uploaded_weights = []
         self.uploaded_models = []
         tot_samples = 0
-        for client in self.clients:
+        for client in self.selected_clients:
             try:
                 client_time_cost = (
                     client.train_time_cost["total_cost"]
@@ -172,107 +171,14 @@ class Server(object):
 
         for w, client_model in zip(self.uploaded_weights, self.uploaded_models):
             self.add_parameters(w, client_model)
-
-    def aggregate_gradients(self):
-        self.global_model = copy.deepcopy(self.uploaded_models[0])
-
-        for new_param, orig_param in zip(
-            self.global_model.parameters(), self.uploaded_models[0].parameters()
-        ):
-            new_param.grad = orig_param.grad.clone()
-
-        client_grads = []
-        for client in self.uploaded_models:
-            # grad = [param.grad.clone() for param in client.parameters()]
-            grad = [param.grad.clone() for param in client.parameters()]
-            client_grads.append(grad)
-
-        topk_grads = self.get_top_k(client_grads, self.topk_algo)
-        average_grads = [sum(element) / len(topk_grads) for element in zip(*topk_grads)]
-
-        for idx, param in enumerate(self.global_model.parameters()):
-            if param.grad == None:
-                param.grad.data = torch.zeros_like(param.data)
-            param.grad.data = average_grads[idx]
-
-        optimizer = torch.optim.SGD(
-            self.global_model.parameters(), lr=self.args.local_learning_rate
-        )
-        optimizer.step()
-
-    def aggregate_param_diff(self):
-        client_updated_params = []
-
-        for client in self.uploaded_models:
-            param = [
-                client_param.data.clone() - global_param.data.clone()
-                for client_param, global_param in zip(
-                    client.parameters(), self.global_model.parameters()
-                )
-            ]
-            client_updated_params.append(param)
-
-        self.global_model = copy.deepcopy(self.uploaded_models[0])
-        # for new_param, origin in zip(self.global_model.parameters(), self.prev_epoch_global_param):
-        #     new_param.data = origin
-
-        topk_updated_params = self.get_top_k(client_updated_params, self.topk_algo)
-        for param_topk, w in zip(topk_updated_params, self.uploaded_weights):
+            
+    def aggregate_parameter_diff(self,uploaded_params):
+        for param_topk, w in zip(uploaded_params, self.uploaded_weights):
             for server_param, client_param_diff in zip(
                 self.global_model.parameters(), param_topk
             ):
-                server_param.data += client_param_diff.data.clone() * w
-
-        self.prev_epoch_global_param = [
-            param.data.clone() for param in self.global_model.parameters()
-        ]
-
-    def get_top_k(self, aggregated_clients, topk_algo):
-        if topk_algo == "global":
-            topk_ = [self.global_topk(client) for client in aggregated_clients]
-        elif topk_algo == "chunk":
-            topk_ = [self.chunk_topk(client) for client in aggregated_clients]
-        else:
-            topk_ = aggregated_clients
-
-        return topk_
-
-    def chunk_topk(self, gradient):
-        all_grads = torch.cat([grad.reshape(-1) for grad in gradient])
-        chunks = all_grads.chunk(self.topk, dim=-1)
-        for chunk in chunks:
-            local_max_index = torch.abs(chunk.data).argmax().item()
-            zeroed_out = set(range(len(chunk))) - set([local_max_index])
-            chunk.data[list(zeroed_out)] = 0
-
-        topk_chunk_grad_flattened = torch.cat([chunk for chunk in chunks])
-
-        topk_chunk_grad = []
-        start_idx = 0
-        for grad in gradient:
-            end_idx = start_idx + grad.data.numel()
-            topk_chunk_grad.append(
-                torch.Tensor(topk_chunk_grad_flattened[start_idx:end_idx]).view(
-                    grad.data.shape
-                )
-            )
-            start_idx = end_idx
-
-        return topk_chunk_grad
-
-    def global_topk(self, gradient):
-        min_ = self.get_min_grad(gradient)
-
-        for g in gradient:
-            g.data = torch.where(torch.abs(g) >= min_, g, 0.0)
-
-        return gradient
-
-    def get_min_grad(self, gradient):
-        all_grads = torch.cat([grad.reshape(-1) for grad in gradient])
-        topk_grads = torch.abs(all_grads).topk(self.topk)[0]
-        return torch.min(topk_grads).item()
-
+                server_param.data += client_param_diff * w
+   
     def add_parameters(self, w, client_model):
         for server_param, client_param in zip(
             self.global_model.parameters(), client_model.parameters()
@@ -284,13 +190,14 @@ class Server(object):
         if not os.path.exists(model_path):
             os.makedirs(model_path)
         model_path = os.path.join(model_path, self.algorithm + "_server" + ".pt")
+        print("Sdf")
         torch.save(self.global_model, model_path)
 
     def load_model(self):
         model_path = os.path.join("models", self.dataset)
         model_path = os.path.join(model_path, self.algorithm + "_server" + ".pt")
         assert os.path.exists(model_path)
-        self.global_model = torch.load(model_path)
+        return torch.load(model_path)
 
     def model_exists(self):
         model_path = os.path.join("models", self.dataset)
@@ -327,7 +234,8 @@ class Server(object):
 
     def test_metrics(self):
         testloaderfull = self.test_loader
-
+        self.global_model = copy.deepcopy(self.uploaded_models[0])
+        # self.global_model.to(self.device)
         self.global_model.eval()
 
         test_acc = 0
