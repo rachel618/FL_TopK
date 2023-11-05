@@ -173,6 +173,7 @@ class Server(object):
             self.add_parameters(w, client_model)
             
     def aggregate_parameter_diff(self,uploaded_params):
+<<<<<<< HEAD
         topk_params = self.get_top_k(uploaded_params, self.topk_algo)
         for param_topk, w in zip(topk_params, self.uploaded_weights):
             for server_param, client_param_diff in zip(
@@ -254,6 +255,14 @@ class Server(object):
         topk_grads = torch.abs(all_grads).topk(self.topk)[0]
         return torch.min(topk_grads).item()
 
+=======
+        for param_topk, w in zip(uploaded_params, self.uploaded_weights):
+            for server_param, client_param_diff in zip(
+                self.global_model.parameters(), param_topk
+            ):
+                server_param.data += client_param_diff * w
+   
+>>>>>>> a9eadfd7ce939527324a9a780be3af967059b1a4
     def add_parameters(self, w, client_model):
         for server_param, client_param in zip(
             self.global_model.parameters(), client_model.parameters()
