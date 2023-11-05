@@ -144,7 +144,7 @@ class Server(object):
         self.uploaded_weights = []
         self.uploaded_models = []
         tot_samples = 0
-        for client in self.clients:
+        for client in self.selected_clients:
             try:
                 client_time_cost = (
                     client.train_time_cost["total_cost"]
@@ -171,7 +171,15 @@ class Server(object):
 
         for w, client_model in zip(self.uploaded_weights, self.uploaded_models):
             self.add_parameters(w, client_model)
-
+            
+    def aggregate_parameter_diff(self,uploaded_params):
+        topk_params = self.get_top_k(uploaded_params, self.topk_algo)
+        for param_topk, w in zip(topk_params, self.uploaded_weights):
+            for server_param, client_param_diff in zip(
+                self.global_model.parameters(), param_topk
+            ):
+                server_param.data += client_param_diff.data.clone() * w
+        
     def aggregate_gradients(self):
         self.global_model = copy.deepcopy(self.uploaded_models[0])
 
@@ -199,27 +207,7 @@ class Server(object):
         )
         optimizer.step()
 
-    def aggregate_param_diff(self):
-        prev_model = copy.deepcopy(self.global_model)
-        self.global_model = copy.deepcopy(self.uploaded_models[0])
-
-        client_updated_params = []
-        for client in self.uploaded_models:
-            param = [
-                client_param.data.clone() - global_param.data.clone()
-                for client_param, global_param in zip(
-                    client.parameters(), self.global_model.parameters()
-                )
-            ]
-            client_updated_params.append(param)
-
-        topk_updated_params = self.get_top_k(client_updated_params, self.topk_algo)
-        for param_topk, w in zip(topk_updated_params, self.uploaded_weights):
-            for server_param, client_param_diff in zip(
-                prev_model.parameters(), self.global_model.parameters(), param_topk
-            ):
-                server_param.data += client_param_diff.data * w
-
+    
     def get_top_k(self, aggregated_clients, topk_algo):
         if topk_algo == "global":
             topk_ = [self.global_topk(client) for client in aggregated_clients]
@@ -277,13 +265,14 @@ class Server(object):
         if not os.path.exists(model_path):
             os.makedirs(model_path)
         model_path = os.path.join(model_path, self.algorithm + "_server" + ".pt")
+        print("Sdf")
         torch.save(self.global_model, model_path)
 
     def load_model(self):
         model_path = os.path.join("models", self.dataset)
         model_path = os.path.join(model_path, self.algorithm + "_server" + ".pt")
         assert os.path.exists(model_path)
-        self.global_model = torch.load(model_path)
+        return torch.load(model_path)
 
     def model_exists(self):
         model_path = os.path.join("models", self.dataset)
@@ -320,7 +309,8 @@ class Server(object):
 
     def test_metrics(self):
         testloaderfull = self.test_loader
-
+        self.global_model = copy.deepcopy(self.uploaded_models[0])
+        # self.global_model.to(self.device)
         self.global_model.eval()
 
         test_acc = 0
