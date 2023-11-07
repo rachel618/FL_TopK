@@ -26,7 +26,6 @@ class FedAvg(Server):
         # select slow clients
         self.set_slow_clients()
         self.set_clients(clientAVG)
-        self.save_global_model()
         print(f"\nJoin ratio / total clients: {self.join_ratio} / {self.num_clients}")
         print("Finished creating server and clients.")
 
@@ -34,32 +33,16 @@ class FedAvg(Server):
         self.Budget = []
         self.uploaded_params = []
         
-    def are_model_parameters_equal(self,params1,params2):
-        if len(params1) != len(params2):
-            print('different length')
-            return False
-
-        for param1, param2 in zip(params1, params2):
-            if not torch.equal(param1.data, param2.data):
-                print('different elements')
-                return False
-<<<<<<< HEAD
-=======
-
-        return True
->>>>>>> a9eadfd7ce939527324a9a780be3af967059b1a4
-
-        return True
     
     def train(self):
+       
         for i in range(self.global_rounds + 1):
             s_t = time.time()
             self.selected_clients = self.clients
-           
-            self.uploaded_params = []
-            self.send_models() # senf global model to local models
+            self.global_model.train()
+            self.send_models() # send global model to local models
             
-            if i % self.eval_gap == 0 and i > 0:
+            if i % self.eval_gap == 0 and i > 0 :
                 print(f"\n-------------Round number: {i}-------------")
                 print("\nEvaluate global model")
                 train_loss, test_acc, test_auc = self.evaluate()
@@ -73,29 +56,26 @@ class FedAvg(Server):
                         "global model test auc": test_auc,
                     }
                 )
+                
+            self.uploaded_params = []
             for client in tqdm(self.selected_clients, desc = 'training clients...'):
-                uploaded_param = client.train()
-                self.uploaded_params.append(uploaded_param)
+                uploded_params = client.train()
+                self.uploaded_params.append(uploded_params)
 
             self.receive_models()
-            if self.dlg_eval and i % self.dlg_gap == 0:
-                self.call_dlg(i)
             self.aggregate_parameter_diff(self.uploaded_params)
-
+            self.save_global_model()
+            
             self.Budget.append(time.time() - s_t)
             print("-" * 25, "time cost", "-" * 25, self.Budget[-1])
-
-            
-
-            # threads = [Thread(target=client.train)
-            #            for client in self.selected_clients]
-            # [t.start() for t in threads]
-            # [t.join() for t in threads]
 
             if self.auto_break and self.check_done(
                 acc_lss=[self.rs_test_acc], top_cnt=self.top_cnt
             ):
                 break
+            
+            
+        
 
         print("\nBest accuracy.")
         # self.print_(max(self.rs_test_acc), max(
@@ -105,7 +85,7 @@ class FedAvg(Server):
         print(sum(self.Budget[1:]) / len(self.Budget[1:]))
 
         self.save_results()
-        self.save_global_model()
+        
 
         if self.num_new_clients > 0:
             self.eval_new_clients = True
