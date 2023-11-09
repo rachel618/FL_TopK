@@ -173,13 +173,6 @@ class Server(object):
             for layer_name, param in self.global_model.named_parameters():
                 param.data += client_model[layer_name] * w
 
-        # for param_topk, w in zip(uploaded_params, self.uploaded_weights):
-        #     for server_param, client_param_diff in zip(
-        #         self.global_model.parameters(), param_topk
-        #     ):
-                
-        #         server_param.data += client_param_diff.data.clone() * w
-
         
     def add_parameters(self, w, client_model):
         for server_param, client_param in zip(
@@ -233,15 +226,7 @@ class Server(object):
         return torch.load(
             os.path.join(self.save_folder_name, "server_" + item_name + ".pt")
         )
-    def are_model_parameters_equal(self, params1,params2):
-        if len(params1) != len(params2):
-            print('diff')
 
-        for param1, param2 in zip(params1, params2):
-            if not torch.equal(param1.data, param2.data):
-                print('diff')
-
-        print('eq')
     def test_metrics(self):
         testloaderfull = self.test_loader
         
@@ -273,7 +258,7 @@ class Server(object):
 
         y_prob = np.concatenate(y_prob, axis=0)
         y_true = np.concatenate(y_true, axis=0)
-        # print(test_acc, test_acc_2)
+     
         auc = metrics.roc_auc_score(y_true, y_prob, average="micro")
 
         return test_acc, test_num, auc

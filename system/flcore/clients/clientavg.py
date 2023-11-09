@@ -18,7 +18,6 @@ class clientAVG(Client):
         start_time = time.time()
         max_local_epochs = self.local_epochs
         
-        # initial_params = [param.data.clone() for param in self.model.parameters()]
         initial_params = {name: params.data.clone() for name , params in self.model.named_parameters()}
         
         for _ in range(max_local_epochs):
@@ -39,9 +38,6 @@ class clientAVG(Client):
 
         self.train_time_cost['num_rounds'] += 1
         self.train_time_cost['total_cost'] += time.time() - start_time
-            
-        # param_diff = [cur_param.data.clone() - prev_param for cur_param, prev_param in 
-        #         zip(self.model.parameters(), initial_params)] 
         
         updated_param = self.subtract_params(initial_params)
         top_k_ = self.get_top_k(updated_param) # current - initial 의 top k 
@@ -67,7 +63,6 @@ class clientAVG(Client):
         
 
     def chunk_topk(self,params):
-        # all_params = torch.cat([param.data.reshape(-1) for param in params])
         all_params = torch.cat([param.reshape(-1) for param in params.values()])
         chunks = all_params.chunk(self.topk, dim=-1)
         for chunk in chunks:
@@ -82,12 +77,10 @@ class clientAVG(Client):
         for name, param in self.model.named_parameters():
             end_idx = start_idx + param.data.numel()
             top_k_params[name] = top_k[start_idx:end_idx].view(param.data.shape)
-            # top_k_params.append(top_k[start_idx:end_idx].view(param.data.shape))
             start_idx = end_idx
         return top_k_params
     
     def global_topk(self,params):
-        # all_params = torch.cat([param.data.reshape(-1) for param in params])
         all_params = torch.cat([param.data.reshape(-1) for param in params.values()])
         top_k = all_params.abs().topk(self.topk)
 
