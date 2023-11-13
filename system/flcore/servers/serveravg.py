@@ -39,7 +39,6 @@ class FedAvg(Server):
         for i in range(self.global_rounds + 1):
             s_t = time.time()
             self.selected_clients = self.clients
-            self.global_model.train()
             self.send_models()  # send global model to local models
 
             if i % self.eval_gap == 0 and i > 0:
@@ -56,7 +55,8 @@ class FedAvg(Server):
                         "global model test auc": test_auc,
                     }
                 )
-
+                
+            self.global_model.train()
             self.uploaded_params = []
             for client in tqdm(self.selected_clients, desc="training clients..."):
                 uploded_params = client.train()
