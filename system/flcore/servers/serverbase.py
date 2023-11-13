@@ -12,7 +12,7 @@ from utils.data_utils import read_client_data
 from torch.utils.data import DataLoader
 from utils.dlg import DLG
 
-
+import seaborn as sns
 class Server(object):
     def __init__(self, args, times):
         # Set up the main attributes
@@ -181,6 +181,12 @@ class Server(object):
             server_param.data += client_param.data.clone() * w
 
     def save_global_model(self):
+        # params = torch.cat([param.data.reshape(-1) for param in self.global_model.parameters()])
+        # params = params[params.nonzero().tolist()]
+        # sns_plot_ = sns.distplot(params.detach().cpu().numpy(), bins = 30)
+        # fig_ = sns_plot_.get_figure()
+        # fig_.savefig("chunk_topk_params.png")
+        
         model_path = os.path.join("models", self.dataset)
         if not os.path.exists(model_path):
             os.makedirs(model_path)

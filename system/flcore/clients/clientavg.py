@@ -63,15 +63,19 @@ class clientAVG(Client):
         
 
     def chunk_topk(self,params):
-        all_params = torch.cat([param.reshape(-1) for param in params.values()])
+        all_params = torch.cat([param.data.reshape(-1) for param in params.values()])
         chunks = all_params.chunk(self.topk, dim=-1)
+        # topk = []
         for chunk in chunks:
             local_max_index = torch.abs(chunk.data).argmax().item()
+            # topk.append(chunk[local_max_index])
             zeroed_out = set(range(len(chunk))) - set([local_max_index])
             chunk.data[list(zeroed_out)] = 0
 
         top_k = torch.cat([chunk for chunk in chunks])
-    
+        # sns_plot = sns.distplot(topk, bins = 10)
+        # fig = sns_plot.get_figure()
+        # fig.savefig("chunk_topk_params.png")
         start_idx = 0
         top_k_params = {}
         for name, param in self.model.named_parameters():
@@ -83,14 +87,13 @@ class clientAVG(Client):
     def global_topk(self,params):
         all_params = torch.cat([param.data.reshape(-1) for param in params.values()])
         top_k = all_params.abs().topk(self.topk)
-
-        # sns_plot = sns.distplot(all_params.detach().cpu().numpy(), bins = 10)
-        # fig = sns_plot.get_figure()
-        # fig.savefig("origianl_params.png")
+        sns_plot = sns.distplot(all_params[top_k.indices.tolist()].detach().cpu().numpy(), bins = 20)
+        fig = sns_plot.get_figure()
+        fig.savefig("client_global_topk_params.png")
+        # sns_plot_ = sns.distplot(all_params.detach().cpu().numpy(), bins = 20)
+        # fig_ = sns_plot_.get_figure()
+        # fig_.savefig("origianl_params.png")
         
-        # sns_plot = sns.distplot(top_k.values.detach().cpu().numpy(), bins = 10)
-        # fig = sns_plot.get_figure()
-        # fig.savefig("global_topk_params.png")
         mask = set(range(len(all_params))) - set(top_k.indices.tolist())
         
         all_params[list(mask)] = 0
@@ -105,7 +108,7 @@ class clientAVG(Client):
             
         return top_k_params
 
-    def get_min_grad(self, gradient):
-        all_grads = torch.cat([grad.reshape(-1) for grad in gradient])
-        topk_grads = torch.abs(all_grads).topk(self.topk)[0]
-        return torch.min(topk_grads).item()
+    def get_min_of_topk(self, params):
+        all_params = torch.cat([param.reshape(-1) for param in params])
+        topk_params = torch.abs(all_params).topk(self.topk)[0]
+        return torch.min(topk_params).item()
