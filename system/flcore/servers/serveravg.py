@@ -5,6 +5,8 @@ from threading import Thread
 import wandb
 import torch
 from tqdm import tqdm
+
+
 class FedAvg(Server):
     def __init__(self, args, times):
         super().__init__(args, times)
@@ -32,21 +34,19 @@ class FedAvg(Server):
         # self.load_model()
         self.Budget = []
         self.uploaded_params = []
-        
-    
+
     def train(self):
-       
         for i in range(self.global_rounds + 1):
             s_t = time.time()
             self.selected_clients = self.clients
             self.global_model.train()
-            self.send_models() # send global model to local models
-            
-            if i % self.eval_gap == 0 and i > 0 :
+            self.send_models()  # send global model to local models
+
+            if i % self.eval_gap == 0 and i > 0:
                 print(f"\n-------------Round number: {i}-------------")
                 print("\nEvaluate global model")
                 train_loss, test_acc, test_auc = self.evaluate()
-               
+
                 wandb.log(
                     {
                         "train epochs": i + 1,
@@ -56,16 +56,16 @@ class FedAvg(Server):
                         "global model test auc": test_auc,
                     }
                 )
-                
+
             self.uploaded_params = []
-            for client in tqdm(self.selected_clients, desc = 'training clients...'):
+            for client in tqdm(self.selected_clients, desc="training clients..."):
                 uploded_params = client.train()
                 self.uploaded_params.append(uploded_params)
 
             self.receive_models()
             self.aggregate_parameter_diff(self.uploaded_params)
             self.save_global_model()
-            
+
             self.Budget.append(time.time() - s_t)
             print("-" * 25, "time cost", "-" * 25, self.Budget[-1])
 
@@ -73,19 +73,13 @@ class FedAvg(Server):
                 acc_lss=[self.rs_test_acc], top_cnt=self.top_cnt
             ):
                 break
-            
-            
-        
 
         print("\nBest accuracy.")
-        # self.print_(max(self.rs_test_acc), max(
-        #     self.rs_train_acc), min(self.rs_train_loss))
         print(max(self.rs_test_acc))
         print("\nAverage time cost per round.")
         print(sum(self.Budget[1:]) / len(self.Budget[1:]))
 
         self.save_results()
-        
 
         if self.num_new_clients > 0:
             self.eval_new_clients = True
@@ -93,4 +87,3 @@ class FedAvg(Server):
             print(f"\n-------------Fine tuning round-------------")
             print("\nEvaluate new clients")
             self.evaluate()
-

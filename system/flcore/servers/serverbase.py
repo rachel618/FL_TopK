@@ -12,7 +12,7 @@ from utils.data_utils import read_client_data
 from torch.utils.data import DataLoader
 from utils.dlg import DLG
 
-import seaborn as sns
+
 class Server(object):
     def __init__(self, args, times):
         # Set up the main attributes
@@ -123,12 +123,12 @@ class Server(object):
 
     def send_models(self):
         assert len(self.clients) > 0
-    
+
         for client in self.clients:
             start_time = time.time()
 
             client.set_parameters(self.global_model)
-            
+
             client.send_time_cost["num_rounds"] += 1
             client.send_time_cost["total_cost"] += 2 * (time.time() - start_time)
 
@@ -160,20 +160,14 @@ class Server(object):
     def aggregate_parameters(self, params):
         assert len(self.uploaded_models) > 0
 
-        # self.global_model = copy.deepcopy(self.uploaded_models[0])
-        # for param in self.global_model.parameters():
-        #     param.data.zero_()
-
         for w, client_model in zip(self.uploaded_weights, params):
             self.add_parameters(w, client_model)
-            
-    def aggregate_parameter_diff(self,uploaded_params):
-       
+
+    def aggregate_parameter_diff(self, uploaded_params):
         for w, client_model in zip(self.uploaded_weights, uploaded_params):
             for layer_name, param in self.global_model.named_parameters():
                 param.data += client_model[layer_name] * w
 
-        
     def add_parameters(self, w, client_model):
         for server_param, client_param in zip(
             self.global_model.parameters(), client_model.parameters()
@@ -181,17 +175,13 @@ class Server(object):
             server_param.data += client_param.data.clone() * w
 
     def save_global_model(self):
-        # params = torch.cat([param.data.reshape(-1) for param in self.global_model.parameters()])
-        # params = params[params.nonzero().tolist()]
-        # sns_plot_ = sns.distplot(params.detach().cpu().numpy(), bins = 30)
-        # fig_ = sns_plot_.get_figure()
-        # fig_.savefig("chunk_topk_params.png")
-        
         model_path = os.path.join("models", self.dataset)
         if not os.path.exists(model_path):
             os.makedirs(model_path)
-        model_path = os.path.join(model_path, self.algorithm + self.dataset + "_server" + ".pt")
-        
+        model_path = os.path.join(
+            model_path, self.algorithm + self.dataset + "_server" + ".pt"
+        )
+
         torch.save(self.global_model, model_path)
 
     def load_model(self):
@@ -235,10 +225,10 @@ class Server(object):
 
     def test_metrics(self):
         testloaderfull = self.test_loader
-        
+
         self.global_model = copy.deepcopy(self.uploaded_models[0])
         self.global_model.eval()
-       
+
         test_acc = 0
         test_num = 0
         y_prob = []
@@ -249,22 +239,19 @@ class Server(object):
                 x = x.to(self.device)
                 y = y.to(self.device)
                 output = self.global_model(x)
-               
+
                 test_acc += (torch.sum(torch.argmax(output, dim=1) == y)).item()
                 test_num += y.shape[0]
 
                 y_prob.append(output.detach().cpu().numpy())
                 nc = self.num_classes
-               
+
                 lb = label_binarize(y.detach().cpu().numpy(), classes=np.arange(nc))
                 y_true.append(lb)
 
-        # self.model.cpu()
-        # self.save_model(self.model, 'model')
-
         y_prob = np.concatenate(y_prob, axis=0)
         y_true = np.concatenate(y_true, axis=0)
-     
+
         auc = metrics.roc_auc_score(y_true, y_prob, average="micro")
 
         return test_acc, test_num, auc
@@ -344,7 +331,6 @@ class Server(object):
             else:
                 raise NotImplementedError
         return True
-
 
     def set_new_clients(self, clientObj):
         for i in range(self.num_clients, self.num_clients + self.num_new_clients):

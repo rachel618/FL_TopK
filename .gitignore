@@ -4,7 +4,7 @@ dataset/mnist
 results/
 system/models
 wandb/
-test.ipynb
+*.ipynb
 system/servers/serverlin.py
 system/clients/clientlin.py
 system/*.png
