@@ -1,2 +1,10 @@
 *__pycache__*
 dataset/femnist
+dataset/mnist
+results/
+system/models
+wandb/
+*.ipynb
+system/servers/serverlin.py
+system/clients/clientlin.py
+system/*.png
